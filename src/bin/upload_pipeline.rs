@@ -10,7 +10,8 @@ use std::{
 use bytes::Bytes;
 use csv::{ReaderBuilder, StringRecord, WriterBuilder};
 use futures_util::SinkExt;
-use postgres_native_tls::MakeTlsConnector;
+use openssl::ssl::{SslConnector, SslMethod};
+use postgres_openssl::MakeTlsConnector;
 use tokio_postgres::Client;
 
 type PipelineResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -92,6 +93,11 @@ const IMPORT_SPECS: &[ImportSpec] = &[
 async fn main() {
     if let Err(error) = run().await {
         eprintln!("ETL failed: {error}");
+        let mut source = error.source();
+        while let Some(cause) = source {
+            eprintln!("Caused by: {cause}");
+            source = cause.source();
+        }
         std::process::exit(1);
     }
 }
@@ -104,9 +110,8 @@ async fn run() -> PipelineResult<()> {
 
     validate_input_files(&data_dir)?;
 
-    let tls_connector = native_tls::TlsConnector::builder().build()?;
-    let (mut client, connection) =
-        tokio_postgres::connect(&database_url, MakeTlsConnector::new(tls_connector)).await?;
+    let tls_connector = build_tls_connector()?;
+    let (mut client, connection) = tokio_postgres::connect(&database_url, tls_connector).await?;
 
     tokio::spawn(async move {
         if let Err(error) = connection.await {
@@ -123,7 +128,7 @@ async fn run() -> PipelineResult<()> {
         let path = data_dir.join(spec.file_name);
         let stats = import_file(&mut client, spec, &path)
             .await
-            .map_err(|error| io::Error::other(format!("{}: {error}", spec.file_name)))?;
+            .map_err(|error| io::Error::other(format!("{}: {error:?}", spec.file_name)))?;
 
         println!(
             "{}: staged {}, inserted {} (existing keys skipped)",
@@ -137,6 +142,16 @@ async fn run() -> PipelineResult<()> {
 
     println!("Import complete: {total_inserted} rows inserted from {total_staged} staged rows.");
     Ok(())
+}
+
+fn build_tls_connector() -> PipelineResult<MakeTlsConnector> {
+    let mut builder = SslConnector::builder(SslMethod::tls())?;
+
+    if let Some(certificate_path) = env::var_os("DATABASE_CA_CERT") {
+        builder.set_ca_file(PathBuf::from(certificate_path))?;
+    }
+
+    Ok(MakeTlsConnector::new(builder.build()))
 }
 
 fn validate_input_files(data_dir: &Path) -> PipelineResult<()> {
@@ -168,7 +183,7 @@ fn validate_input_files(data_dir: &Path) -> PipelineResult<()> {
 async fn verify_schema(client: &Client) -> PipelineResult<()> {
     let schema_exists: bool = client
         .query_one(
-            "SELECT to_regclass('public.food') IS NOT NULL\
+            "SELECT to_regclass('public.food') IS NOT NULL
              AND to_regclass('public.food_search') IS NOT NULL",
             &[],
         )
@@ -273,8 +288,8 @@ async fn import_file(
 async fn fetch_table_columns(client: &Client, table_name: &str) -> PipelineResult<Vec<String>> {
     let rows = client
         .query(
-            "SELECT column_name FROM information_schema.columns\
-             WHERE table_schema = 'public' AND table_name = $1\
+            "SELECT column_name FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = $1
              ORDER BY ordinal_position",
             &[&table_name],
         )

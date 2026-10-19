@@ -8,7 +8,7 @@ CREATE TABLE public.nutrient (
     id BIGINT PRIMARY KEY,
     name TEXT NOT NULL,
     unit_name TEXT,
-    nutrient_nbr INTEGER,
+    nutrient_nbr NUMERIC,
     rank NUMERIC
 );
 
@@ -26,7 +26,7 @@ CREATE TABLE public.food_attribute_type (
 CREATE TABLE public.food (
     fdc_id BIGINT PRIMARY KEY,
     data_type TEXT NOT NULL,
-    description TEXT NOT NULL,
+    description TEXT,
     food_category_id BIGINT REFERENCES public.food_category(id),
     publication_date DATE,
     market_country TEXT,
