@@ -1,0 +1,13 @@
+DROP TABLE IF EXISTS public.sub_sample_result;
+DROP TABLE IF EXISTS public.lab_method_code;
+DROP TABLE IF EXISTS public.lab_method_nutrient;
+DROP TABLE IF EXISTS public.acquisition_samples;
+DROP TABLE IF EXISTS public.sub_sample_food;
+DROP TABLE IF EXISTS public.agricultural_samples;
+DROP TABLE IF EXISTS public.food_component;
+DROP TABLE IF EXISTS public.food_update_log_entry;
+DROP TABLE IF EXISTS public.foundation_food;
+DROP TABLE IF EXISTS public.market_acquisition;
+DROP TABLE IF EXISTS public.microbe;
+DROP TABLE IF EXISTS public.sample_food;
+DROP TABLE IF EXISTS public.lab_method;

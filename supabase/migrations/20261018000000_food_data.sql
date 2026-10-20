@@ -1,10 +1,10 @@
-CREATE TABLE public.food_category (
+CREATE TABLE IF NOT EXISTS public.food_category (
     id BIGINT PRIMARY KEY,
     code TEXT,
     description TEXT NOT NULL
 );
 
-CREATE TABLE public.nutrient (
+CREATE TABLE IF NOT EXISTS public.nutrient (
     id BIGINT PRIMARY KEY,
     name TEXT NOT NULL,
     unit_name TEXT,
@@ -12,18 +12,18 @@ CREATE TABLE public.nutrient (
     rank NUMERIC
 );
 
-CREATE TABLE public.measure_unit (
+CREATE TABLE IF NOT EXISTS public.measure_unit (
     id BIGINT PRIMARY KEY,
     name TEXT NOT NULL
 );
 
-CREATE TABLE public.food_attribute_type (
+CREATE TABLE IF NOT EXISTS public.food_attribute_type (
     id BIGINT PRIMARY KEY,
     name TEXT NOT NULL,
     description TEXT
 );
 
-CREATE TABLE public.food (
+CREATE TABLE IF NOT EXISTS public.food (
     fdc_id BIGINT PRIMARY KEY,
     data_type TEXT NOT NULL,
     description TEXT,
@@ -33,7 +33,7 @@ CREATE TABLE public.food (
     trade_channel TEXT
 );
 
-CREATE TABLE public.branded_food (
+CREATE TABLE IF NOT EXISTS public.branded_food (
     fdc_id BIGINT PRIMARY KEY REFERENCES public.food(fdc_id) ON DELETE CASCADE,
     brand_owner TEXT,
     brand_name TEXT,
@@ -57,7 +57,24 @@ CREATE TABLE public.branded_food (
     material_code TEXT
 );
 
-CREATE TABLE public.food_attribute (
+CREATE TABLE IF NOT EXISTS public.food_nutrient_conversion_factor (
+    id BIGINT PRIMARY KEY,
+    fdc_id BIGINT NOT NULL REFERENCES public.food(fdc_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS public.food_calorie_conversion_factor (
+    food_nutrient_conversion_factor_id BIGINT PRIMARY KEY REFERENCES public.food_nutrient_conversion_factor(id) ON DELETE CASCADE,
+    protein_value NUMERIC,
+    fat_value NUMERIC,
+    carbohydrate_value NUMERIC
+);
+
+CREATE TABLE IF NOT EXISTS public.food_protein_conversion_factor (
+    food_nutrient_conversion_factor_id BIGINT PRIMARY KEY REFERENCES public.food_nutrient_conversion_factor(id) ON DELETE CASCADE,
+    value NUMERIC
+);
+
+CREATE TABLE IF NOT EXISTS public.food_attribute (
     id BIGINT PRIMARY KEY,
     fdc_id BIGINT NOT NULL REFERENCES public.food(fdc_id) ON DELETE CASCADE,
     seq_num INTEGER,
@@ -66,7 +83,7 @@ CREATE TABLE public.food_attribute (
     value TEXT
 );
 
-CREATE TABLE public.food_nutrient (
+CREATE TABLE IF NOT EXISTS public.food_nutrient (
     id BIGINT PRIMARY KEY,
     fdc_id BIGINT NOT NULL REFERENCES public.food(fdc_id) ON DELETE CASCADE,
     nutrient_id BIGINT NOT NULL REFERENCES public.nutrient(id),
@@ -80,7 +97,7 @@ CREATE TABLE public.food_nutrient (
     min_year_acquired INTEGER
 );
 
-CREATE TABLE public.food_portion (
+CREATE TABLE IF NOT EXISTS public.food_portion (
     id BIGINT PRIMARY KEY,
     fdc_id BIGINT NOT NULL REFERENCES public.food(fdc_id) ON DELETE CASCADE,
     seq_num INTEGER,
@@ -94,7 +111,7 @@ CREATE TABLE public.food_portion (
     min_year_acquired INTEGER
 );
 
-CREATE TABLE public.input_food (
+CREATE TABLE IF NOT EXISTS public.input_food (
     id BIGINT PRIMARY KEY,
     fdc_id BIGINT NOT NULL REFERENCES public.food(fdc_id) ON DELETE CASCADE,
     fdc_of_input_food BIGINT REFERENCES public.food(fdc_id),

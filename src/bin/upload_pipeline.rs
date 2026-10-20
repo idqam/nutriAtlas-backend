@@ -60,6 +60,18 @@ const IMPORT_SPECS: &[ImportSpec] = &[
         table_name: "food",
     },
     ImportSpec {
+        file_name: "food_nutrient_conversion_factor.csv",
+        table_name: "food_nutrient_conversion_factor",
+    },
+    ImportSpec {
+        file_name: "food_calorie_conversion_factor.csv",
+        table_name: "food_calorie_conversion_factor",
+    },
+    ImportSpec {
+        file_name: "food_protein_conversion_factor.csv",
+        table_name: "food_protein_conversion_factor",
+    },
+    ImportSpec {
         file_name: "branded_food.csv",
         table_name: "branded_food",
     },
@@ -107,25 +119,20 @@ async fn run() -> PipelineResult<()> {
     let data_dir = env::var_os("DATA_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("src/data"));
+    let start_index = import_start_index()?;
 
-    validate_input_files(&data_dir)?;
+    validate_input_files(&data_dir, &IMPORT_SPECS[start_index..])?;
 
-    let tls_connector = build_tls_connector()?;
-    let (mut client, connection) = tokio_postgres::connect(&database_url, tls_connector).await?;
-
-    tokio::spawn(async move {
-        if let Err(error) = connection.await {
-            eprintln!("PostgreSQL connection error: {error}");
-        }
-    });
-
+    let client = connect_database(&database_url).await?;
     verify_schema(&client).await?;
+    drop(client);
 
     let mut total_staged = 0;
     let mut total_inserted = 0;
 
-    for spec in IMPORT_SPECS {
+    for spec in &IMPORT_SPECS[start_index..] {
         let path = data_dir.join(spec.file_name);
+        let mut client = connect_database(&database_url).await?;
         let stats = import_file(&mut client, spec, &path)
             .await
             .map_err(|error| io::Error::other(format!("{}: {error:?}", spec.file_name)))?;
@@ -136,12 +143,50 @@ async fn run() -> PipelineResult<()> {
         );
         total_staged += stats.staged_rows;
         total_inserted += stats.inserted_rows;
+        drop(client);
     }
 
+    let client = connect_database(&database_url).await?;
     refresh_food_search(&client).await?;
 
     println!("Import complete: {total_inserted} rows inserted from {total_staged} staged rows.");
     Ok(())
+}
+
+fn import_start_index() -> PipelineResult<usize> {
+    let args = env::args().skip(1).collect::<Vec<_>>();
+
+    match args.as_slice() {
+        [] => Ok(0),
+        [flag, file_name] if flag == "--from" => IMPORT_SPECS
+            .iter()
+            .position(|spec| spec.file_name == file_name)
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("'{file_name}' is not an import file in this pipeline"),
+                )
+                .into()
+            }),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "usage: upload_pipeline [--from <csv-file>]",
+        )
+        .into()),
+    }
+}
+
+async fn connect_database(database_url: &str) -> PipelineResult<Client> {
+    let (client, connection) =
+        tokio_postgres::connect(database_url, build_tls_connector()?).await?;
+
+    tokio::spawn(async move {
+        if let Err(error) = connection.await {
+            eprintln!("PostgreSQL connection error: {error}");
+        }
+    });
+
+    Ok(client)
 }
 
 fn build_tls_connector() -> PipelineResult<MakeTlsConnector> {
@@ -154,7 +199,7 @@ fn build_tls_connector() -> PipelineResult<MakeTlsConnector> {
     Ok(MakeTlsConnector::new(builder.build()))
 }
 
-fn validate_input_files(data_dir: &Path) -> PipelineResult<()> {
+fn validate_input_files(data_dir: &Path, specs: &[ImportSpec]) -> PipelineResult<()> {
     if !data_dir.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
@@ -163,7 +208,7 @@ fn validate_input_files(data_dir: &Path) -> PipelineResult<()> {
         .into());
     }
 
-    let missing: Vec<_> = IMPORT_SPECS
+    let missing: Vec<_> = specs
         .iter()
         .filter(|spec| !data_dir.join(spec.file_name).is_file())
         .map(|spec| spec.file_name)
@@ -327,9 +372,7 @@ fn map_columns(
         if table_name == "food" && clean_header == "microbe_data" {
             continue;
         }
-        let target_name = match (table_name, clean_header.as_str()) {
-            _ => clean_header,
-        };
+        let target_name = clean_header;
 
         if !target_columns.iter().any(|column| column == &target_name) {
             return Err(io::Error::new(

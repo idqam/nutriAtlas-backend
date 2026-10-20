@@ -1,0 +1,8 @@
+.git
+.env
+.certs
+.vscode
+target
+src/data/
+terraform/.terraform
+terraform/*.tfstate*
