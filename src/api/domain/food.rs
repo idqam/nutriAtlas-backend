@@ -56,6 +56,18 @@ pub enum ServingUnit {
     Loaf,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreparationStyle {
+    Raw,
+    Boiled,
+    Baked,
+    Fried,
+    Grilled,
+    Roasted,
+    Steamed,
+}
+
 impl ServingUnit {
     pub fn grams_if_mass(self) -> Option<f64> {
         match self {
@@ -125,6 +137,8 @@ pub enum NutrientUnit {
     Gram,
     Milligram,
     Microgram,
+    MicrogramRae,
+    MicrogramDfe,
     InternationalUnit,
 }
 
@@ -134,6 +148,8 @@ impl NutrientUnit {
             NutrientUnit::Gram => "g",
             NutrientUnit::Milligram => "mg",
             NutrientUnit::Microgram => "mcg",
+            NutrientUnit::MicrogramRae => "mcg RAE",
+            NutrientUnit::MicrogramDfe => "mcg DFE",
             NutrientUnit::InternationalUnit => "IU",
         }
     }
@@ -205,10 +221,10 @@ impl Nutrient {
     pub fn unit(self) -> NutrientUnit {
         match self {
             Nutrient::Fiber | Nutrient::Sugar => NutrientUnit::Gram,
-            Nutrient::VitaminA => NutrientUnit::InternationalUnit,
+            Nutrient::VitaminA => NutrientUnit::MicrogramRae,
+            Nutrient::Folate => NutrientUnit::MicrogramDfe,
             Nutrient::VitaminD
             | Nutrient::VitaminK
-            | Nutrient::Folate
             | Nutrient::VitaminB12
             | Nutrient::Selenium
             | Nutrient::Iodine => NutrientUnit::Microgram,
@@ -249,6 +265,64 @@ impl Nutrient {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct NutrientTotal {
+    pub logged: f64,
+    pub covered_kcal: f64,
+    pub total_kcal: f64,
+}
+
+impl NutrientTotal {
+    pub fn coverage(&self) -> f64 {
+        if !self.total_kcal.is_finite()
+            || self.total_kcal <= 0.0
+            || !self.covered_kcal.is_finite()
+            || self.covered_kcal <= 0.0
+        {
+            return 0.0;
+        }
+
+        (self.covered_kcal / self.total_kcal).clamp(0.0, 1.0)
+    }
+
+    pub fn confidence(&self, days_logged: usize) -> Confidence {
+        confidence(self.coverage(), days_logged)
+    }
+
+    pub fn plausible_range(&self, days_logged: usize) -> Option<(f64, f64)> {
+        if self.confidence(days_logged) != Confidence::Usable
+            || !self.logged.is_finite()
+            || self.logged < 0.0
+        {
+            return None;
+        }
+
+        Some((self.logged * 0.75, self.logged * 1.25))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Confidence {
+    Insufficient,
+    Low,
+    Usable,
+}
+
+pub fn confidence(coverage: f64, days_logged: usize) -> Confidence {
+    let coverage = if coverage.is_finite() {
+        coverage.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+
+    match (coverage, days_logged) {
+        (coverage, _) if coverage < 0.5 => Confidence::Insufficient,
+        (coverage, days_logged) if coverage < 0.8 || days_logged < 5 => Confidence::Low,
+        _ => Confidence::Usable,
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct MicroNutrients {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fiber_g: Option<f64>,
@@ -259,7 +333,7 @@ pub struct MicroNutrients {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cholesterol_mg: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub vitamin_a_iu: Option<f64>,
+    pub vitamin_a_rae_mcg: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vitamin_c_mg: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -279,7 +353,7 @@ pub struct MicroNutrients {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vitamin_b6_mg: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub folate_mcg: Option<f64>,
+    pub folate_mcg_dfe: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vitamin_b12_mcg: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -307,13 +381,21 @@ pub struct MicroNutrients {
 }
 
 impl MicroNutrients {
+    pub fn zero() -> Self {
+        let mut nutrients = Self::default();
+        for nutrient in Nutrient::ALL {
+            nutrients.set(nutrient, Some(0.0));
+        }
+        nutrients
+    }
+
     pub fn get(&self, nutrient: Nutrient) -> Option<f64> {
         match nutrient {
             Nutrient::Fiber => self.fiber_g,
             Nutrient::Sugar => self.sugar_g,
             Nutrient::Sodium => self.sodium_mg,
             Nutrient::Cholesterol => self.cholesterol_mg,
-            Nutrient::VitaminA => self.vitamin_a_iu,
+            Nutrient::VitaminA => self.vitamin_a_rae_mcg,
             Nutrient::VitaminC => self.vitamin_c_mg,
             Nutrient::VitaminD => self.vitamin_d_mcg,
             Nutrient::VitaminE => self.vitamin_e_mg,
@@ -323,7 +405,7 @@ impl MicroNutrients {
             Nutrient::Niacin => self.niacin_mg,
             Nutrient::PantothenicAcid => self.pantothenic_acid_mg,
             Nutrient::VitaminB6 => self.vitamin_b6_mg,
-            Nutrient::Folate => self.folate_mcg,
+            Nutrient::Folate => self.folate_mcg_dfe,
             Nutrient::VitaminB12 => self.vitamin_b12_mcg,
             Nutrient::Calcium => self.calcium_mg,
             Nutrient::Iron => self.iron_mg,
@@ -345,7 +427,7 @@ impl MicroNutrients {
             Nutrient::Sugar => self.sugar_g = value,
             Nutrient::Sodium => self.sodium_mg = value,
             Nutrient::Cholesterol => self.cholesterol_mg = value,
-            Nutrient::VitaminA => self.vitamin_a_iu = value,
+            Nutrient::VitaminA => self.vitamin_a_rae_mcg = value,
             Nutrient::VitaminC => self.vitamin_c_mg = value,
             Nutrient::VitaminD => self.vitamin_d_mcg = value,
             Nutrient::VitaminE => self.vitamin_e_mg = value,
@@ -355,7 +437,7 @@ impl MicroNutrients {
             Nutrient::Niacin => self.niacin_mg = value,
             Nutrient::PantothenicAcid => self.pantothenic_acid_mg = value,
             Nutrient::VitaminB6 => self.vitamin_b6_mg = value,
-            Nutrient::Folate => self.folate_mcg = value,
+            Nutrient::Folate => self.folate_mcg_dfe = value,
             Nutrient::VitaminB12 => self.vitamin_b12_mcg = value,
             Nutrient::Calcium => self.calcium_mg = value,
             Nutrient::Iron => self.iron_mg = value,
@@ -383,6 +465,35 @@ impl MicroNutrients {
         out
     }
 
+    pub fn add(&self, other: &Self) -> Self {
+        let mut total = Self::default();
+        for (nutrient, value) in self.iter() {
+            total.set(
+                nutrient,
+                value
+                    .zip(other.get(nutrient))
+                    .map(|(left, right)| left + right),
+            );
+        }
+        total
+    }
+
+    pub fn validate(&self) -> Result<(), NutrientValueError> {
+        for (nutrient, value) in self.iter() {
+            let Some(value) = value else {
+                continue;
+            };
+
+            if !value.is_finite() {
+                return Err(NutrientValueError::NonFinite { nutrient, value });
+            }
+            if value < 0.0 {
+                return Err(NutrientValueError::Negative { nutrient, value });
+            }
+        }
+        Ok(())
+    }
+
     pub fn reported_count(&self) -> usize {
         self.iter().filter(|(_, v)| v.is_some()).count()
     }
@@ -391,6 +502,27 @@ impl MicroNutrients {
         self.reported_count() as f64 / Nutrient::ALL.len() as f64
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NutrientValueError {
+    NonFinite { nutrient: Nutrient, value: f64 },
+    Negative { nutrient: Nutrient, value: f64 },
+}
+
+impl std::fmt::Display for NutrientValueError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NutrientValueError::NonFinite { nutrient, value } => {
+                write!(f, "{nutrient:?} must be finite, got {value}")
+            }
+            NutrientValueError::Negative { nutrient, value } => {
+                write!(f, "{nutrient:?} cannot be negative, got {value}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for NutrientValueError {}
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NutrientProfile {
@@ -509,6 +641,79 @@ mod tests {
         for &n in Nutrient::ALL.iter() {
             assert_eq!(m.get(n), Some(1.0));
         }
+    }
+
+    #[test]
+    fn zero_marks_every_nutrient_as_reported_zero() {
+        let nutrients = MicroNutrients::zero();
+        assert_eq!(nutrients.reported_count(), Nutrient::ALL.len());
+        assert!(Nutrient::ALL.iter().all(|&n| nutrients.get(n) == Some(0.0)));
+    }
+
+    #[test]
+    fn addition_preserves_missing_values() {
+        let mut first = MicroNutrients::default();
+        first.fiber_g = Some(1.0);
+        let mut second = MicroNutrients::default();
+        second.fiber_g = Some(2.0);
+        second.sugar_g = Some(3.0);
+
+        let total = first.add(&second);
+        assert_eq!(total.fiber_g, Some(3.0));
+        assert_eq!(total.sugar_g, None);
+    }
+
+    #[test]
+    fn validation_rejects_negative_and_non_finite_values() {
+        let mut nutrients = MicroNutrients::default();
+        nutrients.sodium_mg = Some(-1.0);
+        assert!(matches!(
+            nutrients.validate(),
+            Err(NutrientValueError::Negative {
+                nutrient: Nutrient::Sodium,
+                value: -1.0
+            })
+        ));
+
+        nutrients.sodium_mg = Some(f64::NAN);
+        assert!(matches!(
+            nutrients.validate(),
+            Err(NutrientValueError::NonFinite {
+                nutrient: Nutrient::Sodium,
+                value
+            }) if value.is_nan()
+        ));
+    }
+
+    #[test]
+    fn nutrient_confidence_and_ranges_respect_coverage() {
+        let insufficient = NutrientTotal {
+            logged: 100.0,
+            covered_kcal: 400.0,
+            total_kcal: 1000.0,
+        };
+        assert_eq!(insufficient.confidence(7), Confidence::Insufficient);
+        assert_eq!(insufficient.plausible_range(7), None);
+
+        let low = NutrientTotal {
+            covered_kcal: 700.0,
+            ..insufficient
+        };
+        assert_eq!(low.confidence(3), Confidence::Low);
+        assert_eq!(low.plausible_range(7), None);
+
+        let usable = NutrientTotal {
+            covered_kcal: 900.0,
+            ..insufficient
+        };
+        assert_eq!(usable.confidence(7), Confidence::Usable);
+        assert_eq!(usable.plausible_range(7), Some((75.0, 125.0)));
+    }
+
+    #[test]
+    fn vitamin_a_and_folate_use_standardized_units() {
+        assert_eq!(Nutrient::VitaminA.unit().symbol(), "mcg RAE");
+        assert_eq!(Nutrient::Folate.unit().symbol(), "mcg DFE");
     }
 
     #[test]

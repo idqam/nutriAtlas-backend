@@ -3,3 +3,10 @@
 *.csv
 *.log
 *.env 
+*.certs
+*.sql*
+!supabase/migrations/*.sql
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
