@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use super::user::UserId;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct FoodId(pub Uuid);
@@ -545,6 +547,8 @@ pub struct Food {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brand: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<UserId>,
     pub source: FoodSource,
     pub per_100g: NutrientProfile,
     #[serde(default)]
@@ -577,17 +581,18 @@ mod tests {
     use super::*;
 
     fn chickpeas(source: FoodSource, with_micros: bool) -> Food {
-        let mut micros = MicroNutrients::default();
-        micros.fiber_g = Some(7.6);
-        micros.iron_mg = Some(2.9);
-        if with_micros {
-            micros.magnesium_mg = Some(48.0);
-            micros.vitamin_k_mcg = Some(4.0);
-        }
+        let micros = MicroNutrients {
+            fiber_g: Some(7.6),
+            iron_mg: Some(2.9),
+            magnesium_mg: with_micros.then_some(48.0),
+            vitamin_k_mcg: with_micros.then_some(4.0),
+            ..MicroNutrients::default()
+        };
         Food {
             id: FoodId::new(),
             name: "Chickpeas".into(),
             brand: None,
+            owner: None,
             source,
             per_100g: NutrientProfile {
                 macros: MacroNutrients {
@@ -652,11 +657,15 @@ mod tests {
 
     #[test]
     fn addition_preserves_missing_values() {
-        let mut first = MicroNutrients::default();
-        first.fiber_g = Some(1.0);
-        let mut second = MicroNutrients::default();
-        second.fiber_g = Some(2.0);
-        second.sugar_g = Some(3.0);
+        let first = MicroNutrients {
+            fiber_g: Some(1.0),
+            ..MicroNutrients::default()
+        };
+        let second = MicroNutrients {
+            fiber_g: Some(2.0),
+            sugar_g: Some(3.0),
+            ..MicroNutrients::default()
+        };
 
         let total = first.add(&second);
         assert_eq!(total.fiber_g, Some(3.0));
@@ -665,8 +674,10 @@ mod tests {
 
     #[test]
     fn validation_rejects_negative_and_non_finite_values() {
-        let mut nutrients = MicroNutrients::default();
-        nutrients.sodium_mg = Some(-1.0);
+        let mut nutrients = MicroNutrients {
+            sodium_mg: Some(-1.0),
+            ..MicroNutrients::default()
+        };
         assert!(matches!(
             nutrients.validate(),
             Err(NutrientValueError::Negative {
