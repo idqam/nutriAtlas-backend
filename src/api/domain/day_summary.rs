@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,7 @@ pub struct DaySummary {
     pub user_id: UserId,
     pub local_date: NaiveDate,
     pub macros: MacroNutrients,
-    pub nutrients: HashMap<Nutrient, NutrientTotal>,
+    pub nutrients: BTreeMap<Nutrient, NutrientTotal>,
     pub entry_count: usize,
 }
 
@@ -46,7 +46,7 @@ impl DaySummary {
                     },
                 )
             })
-            .collect::<HashMap<_, _>>();
+            .collect::<BTreeMap<_, _>>();
 
         for entry in &entries {
             let entry_kcal = entry.nutrients.macros.calories_kcal;

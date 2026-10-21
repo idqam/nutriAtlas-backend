@@ -1,4 +1,5 @@
 use chrono::{DateTime, NaiveDate, Utc};
+use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -56,7 +57,7 @@ impl FoodLogEntry {
         quantity: f64,
         meal: MealType,
         consumed_at: DateTime<Utc>,
-        local_date: NaiveDate,
+        timezone: Tz,
     ) -> Result<Self, FoodLogEntryError> {
         if !quantity.is_finite() || quantity <= 0.0 {
             return Err(FoodLogEntryError::InvalidQuantity(quantity));
@@ -66,7 +67,6 @@ impl FoodLogEntry {
             .grams_for(unit, quantity)
             .filter(|grams| grams.is_finite() && *grams > 0.0)
             .ok_or(FoodLogEntryError::UnknownServingUnit(unit))?;
-
         Ok(Self {
             id: LogEntryId::new(),
             user_id,
@@ -79,7 +79,7 @@ impl FoodLogEntry {
             nutrients: food.nutrients_for_grams(grams),
             meal,
             consumed_at,
-            local_date,
+            local_date: consumed_at.with_timezone(&timezone).date_naive(),
         })
     }
 }
@@ -104,3 +104,46 @@ impl std::fmt::Display for FoodLogEntryError {
 }
 
 impl std::error::Error for FoodLogEntryError {}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{NaiveDate, TimeZone, Utc};
+
+    use super::*;
+    use crate::api::domain::food::{MacroNutrients, NutrientProfile};
+
+    #[test]
+    fn local_date_uses_the_supplied_timezone() {
+        let food = Food {
+            id: FoodId::new(),
+            name: "Test food".into(),
+            brand: None,
+            owner: None,
+            source: FoodSource::Common,
+            per_100g: NutrientProfile {
+                macros: MacroNutrients {
+                    calories_kcal: 100.0,
+                    ..MacroNutrients::default()
+                },
+                ..NutrientProfile::default()
+            },
+            servings: Vec::new(),
+        };
+
+        let entry = FoodLogEntry::from_food(
+            UserId::new(),
+            &food,
+            ServingUnit::Gram,
+            100.0,
+            MealType::Dinner,
+            Utc.with_ymd_and_hms(2026, 1, 2, 2, 0, 0).unwrap(),
+            "America/Bogota".parse().unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            entry.local_date,
+            NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()
+        );
+    }
+}

@@ -1,4 +1,5 @@
 use chrono::NaiveDate;
+use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -93,7 +94,7 @@ pub struct User {
     pub user_id: UserId,
     pub role: Role,
     pub plan: Plan,
-    pub timezone: String,
+    pub timezone: Tz,
     pub pref_units: String,
     pub goals: Vec<Goal>,
     #[serde(default)]
@@ -117,7 +118,9 @@ impl User {
             user_id,
             role,
             plan,
-            timezone,
+            timezone: timezone
+                .parse::<Tz>()
+                .map_err(|_| format!("Invalid timezone: {timezone}"))?,
             pref_units,
             goals,
             profile: None,
@@ -235,6 +238,22 @@ mod tests {
         assert_eq!(user.user_id, user_id);
         assert!(user.is_admin());
         assert_eq!(user.plan, Plan::Premium);
+        assert_eq!(user.timezone, "America/Bogota".parse::<Tz>().unwrap());
+    }
+
+    #[test]
+    fn constructor_rejects_unknown_timezone() {
+        assert!(
+            User::new(
+                UserId::new(),
+                Role::User,
+                Plan::Free,
+                "Not/A-Timezone".into(),
+                "metric".into(),
+                vec![],
+            )
+            .is_err()
+        );
     }
 
     #[test]

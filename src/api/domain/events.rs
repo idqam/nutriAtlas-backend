@@ -8,7 +8,7 @@ use super::{
     user::UserId,
 };
 
-pub const DOMAIN_EVENT_SCHEMA_VERSION: u16 = 1;
+pub const DOMAIN_EVENT_SCHEMA_VERSION: u16 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventEnvelope {
@@ -35,10 +35,30 @@ pub struct FoodLogged {
     pub entry: FoodLogEntry,
 }
 
+impl FoodLogged {
+    pub fn new(entry: FoodLogEntry) -> Self {
+        Self {
+            envelope: EventEnvelope::new(entry.user_id),
+            entry,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FoodLogEdited {
     pub envelope: EventEnvelope,
+    pub revision: u64,
     pub entry: FoodLogEntry,
+}
+
+impl FoodLogEdited {
+    pub fn new(entry: FoodLogEntry, revision: u64) -> Self {
+        Self {
+            envelope: EventEnvelope::new(entry.user_id),
+            revision,
+            entry,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
